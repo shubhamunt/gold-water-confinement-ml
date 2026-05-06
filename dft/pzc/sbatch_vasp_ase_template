@@ -1,0 +1,92 @@
+#!/bin/bash
+#SBATCH --nodes=1                  # Number of nodes
+#SBATCH --ntasks-per-node=32       # MPI ranks (KPAR=2, NCORE=4 → 16 ranks/k-point)
+#SBATCH --time=08:00:00            # Walltime, format: HH:MM:SS
+#SBATCH --partition=cpu            # CPU-only partition
+#SBATCH --constraint=avx512        # Require AVX-512 nodes (best: Zen4 cpu069-078, 192 cores)
+#SBATCH --mem-per-cpu=2G           # 2G × 32 = 64G total per job
+#SBATCH --job-name='VCASE_case_NUMBER'
+#SBATCH --account=pi_ozguryilmaze_umass_edu
+
+##### 1) General settings
+export OMP_NUM_THREADS=1
+
+# Load VASP module on Unity
+module purge
+module load mpich/4.2.1
+module load vasp/6.5.1
+module load conda/latest
+
+# Activate environment with ASE and DoubleReferenceMethod
+conda activate "/scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/conda_envs/dft_vasp_env"
+
+# Export VASP Command and the path for the Pseudopotential directory
+export ASE_VASP_COMMAND="srun vasp_std"
+export VASP_PP_PATH="/work/pi_azagalskaya_umass_edu/tools/vasp6"
+
+#### 2) Specific settings for the Double Reference workflow
+
+Bader_code_path="/scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/aravadikeshr_tests/tools/bader"
+Bader_util_path="/scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/aravadikeshr_tests/tools/vtstscripts-1040"
+
+# Path for the python script implementing the Double Reference Method workflow
+# Customize your VASP setting inside it
+DoubleReference_script="DoubleReference_workflow_PZC.py"
+
+# Path for the POSCAR
+Poscar_path=POSCAR_PATH
+
+# Specify folder that will be create for the whole calculation
+folder="case_NUMBER"
+
+
+#### 3) GPU / node diagnostics
+
+echo "========================================"
+echo "Job started: $(date)"
+echo "Node: $(hostname)"
+echo "SLURM_JOB_ID: $SLURM_JOB_ID"
+echo "SLURM_NTASKS: $SLURM_NTASKS"
+echo "========================================"
+
+echo "--- CPU info ---"
+lscpu | grep -E "Model name|Socket|Thread|^CPU\(s\)|MHz|avx512"
+echo "MPI ranks: $SLURM_NTASKS"
+echo "========================================"
+
+
+#### 4) Start Double Reference Method workflow
+
+# Create folder for the calculation and copy inside it the different files
+mkdir $folder
+
+cp $DoubleReference_script $folder/
+cp $Bader_code_path/bader $folder/
+cp $Bader_util_path/chgsum.pl $folder/
+cp $Poscar_path/POSCAR_NUMBER $folder/POSCAR
+
+# Enter in the working directory and start the computation
+cd $folder
+
+echo "--- Starting DoubleReference Python workflow: $(date) ---"
+python $DoubleReference_script
+PYTHON_EXIT=$?
+echo "--- DoubleReference Python workflow finished: $(date) (exit code: $PYTHON_EXIT) ---"
+
+# Clean up only on success to preserve WAVECAR/CHGCAR for restart on failure
+if [ $PYTHON_EXIT -eq 0 ]; then
+    rm -r neutral
+    #rm -r neutral_vacuum
+    #rm -r charge
+    rm chgsum.pl
+    rm bader
+else
+    echo "Python script failed (exit $PYTHON_EXIT) — skipping cleanup to allow restart"
+fi
+
+# Come back in the starting folder
+cd ..
+
+echo "Job finished: $(date)"
+
+conda deactivate

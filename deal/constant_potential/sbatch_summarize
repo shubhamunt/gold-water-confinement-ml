@@ -1,0 +1,57 @@
+#!/bin/bash
+#SBATCH --partition=cpu
+#SBATCH --time=01:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --job-name='DEAL_summary'
+#SBATCH --account=pi_ozguryilmaze_umass_edu
+#SBATCH --output=summarize_%j.out
+
+module purge
+module load conda/latest
+conda activate /scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/conda_envs/flare_deal_env
+
+DEAL_DIR="/scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/aravadikeshr_tests/au_workflow/pzc/DEAL"
+
+# Plot selection curves + summary
+python "${DEAL_DIR}/plot_deal_results.py" \
+    --std_dev_file "${DEAL_DIR}/../MD/std_dev/MACE_Au_H2O_PZC_with_std_dev.xyz" \
+    --deal_dir "${DEAL_DIR}" \
+    --uncertainty_threshold 0.30 \
+    --cutoffs 4.5 5.5 \
+    --deal_thresholds 0.1 0.15 \
+    --outdir "${DEAL_DIR}"
+
+# Export POSCARs from best combo (adjust cutoff/threshold after reviewing plots)
+python -c "
+import os
+from ase.io import read, write
+
+deal_dir = '${DEAL_DIR}'
+cutoff = 5.5
+deal_threshold = 0.15
+
+run_folder = os.path.join(deal_dir, f'threshold-{deal_threshold:.3f}', f'cutoff-{cutoff}')
+selected_file = os.path.join(run_folder, 'deal_selected.xyz')
+
+if not os.path.exists(selected_file):
+    print(f'ERROR: {selected_file} not found')
+    exit(1)
+
+traj = read(selected_file, index=':', format='extxyz')
+
+poscar_dir = os.path.join(deal_dir, 'POSCAR_temp')
+os.makedirs(poscar_dir, exist_ok=True)
+
+for i, snap in enumerate(traj):
+    snap.wrap()
+    write(os.path.join(poscar_dir, f'POSCAR_{i}'), snap, format='vasp')
+
+print(f'Total configurations for DFT labelling: {len(traj)}')
+print(f'Exported to {poscar_dir}/')
+"
+
+echo "$(date)"
+echo "Job finished"

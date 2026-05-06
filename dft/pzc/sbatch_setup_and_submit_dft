@@ -1,0 +1,35 @@
+#!/bin/bash
+# NOT an sbatch script — run this interactively to generate and submit all DFT jobs.
+#
+# Usage:
+#   bash sbatch_setup_and_submit_dft
+#
+# This creates case_N/ directories with sbatch scripts for each POSCAR,
+# then submits them all as separate SLURM jobs.
+
+module purge
+module load conda/latest
+conda activate "/scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/conda_envs/dft_vasp_env"
+
+DFT_DIR="/scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/aravadikeshr_tests/au_workflow/pzc/DFT"
+POSCAR_DIR="${DFT_DIR}/../DEAL/POSCAR_temp"
+
+# Step 1: Generate case directories with sbatch scripts
+cd "${DFT_DIR}"
+python "${DFT_DIR}/setup_dft_runs.py" \
+    --poscar_dir "${POSCAR_DIR}" \
+    --case PZC \
+    --template_script sbatch_vasp_ase_template \
+    --python_calc_file DoubleReference_workflow_PZC.py
+
+# Step 2: Count configurations and submit each job
+NUM_CONFIGS=$(ls "${POSCAR_DIR}"/POSCAR_* 2>/dev/null | wc -l)
+echo "Submitting ${NUM_CONFIGS} DFT jobs..."
+
+cd "${DFT_DIR}/PZC"
+for i in $(seq 0 $((NUM_CONFIGS - 1))); do
+    echo "Submitting single-point number ${i}"
+    cd "case_${i}" && sbatch sbatch_vasp_ase && cd ..
+done
+
+cd "${DFT_DIR}"

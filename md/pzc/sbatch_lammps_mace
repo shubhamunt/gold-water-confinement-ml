@@ -1,0 +1,35 @@
+#!/bin/bash
+#SBATCH --partition=gpu
+#SBATCH --time 48:00:00             # format: HH:MM:SS
+#SBATCH --nodes=1                   # node
+#SBATCH --ntasks-per-node=1         # tasks out of 32
+#SBATCH --gres=gpu:1                # gpus per node
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=48G
+#SBATCH --job-name='MD_Au_PZC'
+#SBATCH --account=pi_ozguryilmaze_umass_edu
+#SBATCH --constraint="l40s&avx512"
+############################
+
+
+# Source environment for Unity HPC
+echo "sourcing environments"
+module purge
+module load uri/main
+module load LAMMPS/28Oct2024-foss-2023a-kokkos-mace-CUDA-12.1.1
+
+# GPU info
+nvidia-smi
+
+#running
+echo "running job"
+   in_file='MACE_Au_111_H2O_PZC_lammps.in'
+   log_file='log.lammps'
+
+   # Workaround: disable OFI BTL to avoid libfabric segfault during MPI init
+   export OMPI_MCA_btl=^ofi
+
+   mpirun lmp -k on g 1 t ${SLURM_CPUS_PER_TASK} -sf kk -i $in_file -l $log_file
+
+
+echo "job finished"

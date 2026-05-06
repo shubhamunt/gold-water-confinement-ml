@@ -1,0 +1,41 @@
+# LAMMPS input script
+# == SETUP ==
+units metal #ps A K  pressure in bars
+atom_style atomic
+atom_modify map yes
+newton on
+timer timeout 23:55:00  
+# == VARIABLES ==
+variable    temp equal 300  # Target temperature for the entire system
+variable    seed1 equal 256982574
+variable    stride equal 200
+variable    nsteps equal 1000000 # 500 ps
+variable    tstep equal 0.0005 # 0.5fs
+# == DATA ==
+boundary p p p #full
+read_data Au_H2O.data
+mass        1 196.9665   # Au
+mass        2 2.0016  # H
+mass        3 15.9994 # O
+# == Define Pair Style ==
+pair_style mace no_domain_decomposition
+pair_coeff * * MACE_Au_H2O_PZC_2_run_stagetwo_compiled.model-lammps.pt Au H O  
+# == Define NVT thermostat == 
+velocity all create ${temp} ${seed1} mom yes rot yes
+fix NVT_all all nvt temp ${temp} ${temp} $(100.0*dt)
+# == Compute and Visualization ==
+thermo          ${stride}
+thermo_style    custom step pe ke etotal temp press vol
+thermo_modify   flush yes
+fix         thermo_print all print ${stride} "$(step) $(pe) $(ke) $(etotal) $(temp) $(press) $(vol)" append thermo.out screen no title "#step pe ke etotal temp press vol"
+compute Tall all temp
+compute Press all pressure Tall
+fix myat5 all ave/time 1 1 100 c_Press[3]  file pressure_all.dat
+dump        viewNVT all custom ${stride} Au_H2O_NVT.dump id type element x y z
+dump_modify viewNVT sort id append yes element Au H O
+# == RUN  NVT ==
+timestep ${tstep}
+run     ${nsteps} 
+write_restart   Au_H2O_restart_1.restart
+write_data Au_H2O_restart_1.data
+undump viewNVT

@@ -1,0 +1,37 @@
+#!/bin/bash
+#SBATCH --account=pi_ozguryilmaze_umass_edu
+#SBATCH --time 12:00:00             # format: HH:MM:SS
+#SBATCH --nodes=1                   # node
+#SBATCH --ntasks-per-node=1         # tasks
+#SBATCH --gres=gpu:1                # gpus per node
+#SBATCH --cpus-per-task=8
+#SBATCH --partition=gpu
+#SBATCH --constraint="a100"
+#SBATCH --mem=64G
+#SBATCH --job-name='Franken_train_CP'
+############################
+
+# Source environment for Unity HPC
+module purge
+module load cuda/12.1
+module load conda/latest
+conda activate /scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/conda_envs/franken_env
+# Franken env: cloned from baseline_mace_env + pip install franken==0.5.0
+
+nvidia-smi
+
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}"
+
+# Start training at different potentials
+# Define the potential values (V_CASES) and number of Random Features (RF_CASES)
+# Expand V_CASES once workflow is validated (e.g., "m05 m075 m1 m125 m15 m175 m2")
+
+for V in m05;
+do
+    for RF in 2048;
+    do
+        echo "Training at potential $V V with $RF Random Features"
+        torchrun --standalone --nnodes=1 --nproc-per-node=1 run_train_Franken_API.py  --Potential_value  $V  --RF_number $RF
+    done
+done

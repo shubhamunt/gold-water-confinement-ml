@@ -1,0 +1,31 @@
+#!/bin/bash
+# NOT an sbatch script — run this interactively to generate and submit all DEAL jobs.
+#
+# Usage:
+#   bash sbatch_setup_and_submit_deal
+#
+# This generates input.yaml + sbatch_deal in each threshold/cutoff folder,
+# then submits them all as separate SLURM jobs.
+
+module purge
+module load conda/latest
+conda activate /scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/conda_envs/flare_deal_env
+
+DEAL_DIR="/scratch/workspace/anshitagupta_umass_edu-ai-gold-confinement/aravadikeshr_tests/au_workflow/pzc/DEAL"
+
+# Step 1: Generate input.yaml + sbatch_deal for each combo
+python "${DEAL_DIR}/setup_deal_runs.py" \
+    --data_file "${DEAL_DIR}/All_Data.xyz" \
+    --outdir "${DEAL_DIR}" \
+    --cutoffs 4.5 5.5 \
+    --deal_thresholds 0.1 0.15 \
+    --mem 256G
+
+# Step 2: Submit each job
+for thr in 0.100 0.150; do
+    for cut in 4.5 5.5; do
+        run_dir="${DEAL_DIR}/threshold-${thr}/cutoff-${cut}"
+        echo "Submitting: ${run_dir}"
+        cd "${run_dir}" && sbatch sbatch_deal && cd -
+    done
+done

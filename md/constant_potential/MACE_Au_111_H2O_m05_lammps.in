@@ -1,0 +1,102 @@
+# LAMMPS input script
+
+# == SETUP ==
+units metal #ps A K  pressure in bars
+atom_style atomic
+
+atom_modify map yes
+newton on
+
+timer timeout 23:55:00
+
+# == VARIABLES ==
+variable    temp_water equal 330  # Temperature of water system
+variable    temp_Au_mobile equal 310 # Temperature of the Au atoms (not fixed). 310 K ensures ~330 K in the outermost Au atoms.
+variable    seed1 equal 256982574
+variable    seed2 equal 1008705
+variable    stride equal 1000
+variable    nsteps equal 2000000 # 1000 ps
+variable    tstep equal 0.0005 # 0.5fs
+
+# == DATA ==
+# Au_H2O.data: 72 Au atoms (6 layers), 112 H, 56 O
+# Au layers at z = 2.39, 4.81, 7.23, 9.65, 12.16 A (lower half) and 34.33 A (upper, near PBC boundary)
+# Water occupies z = 13.45 to 33.06 A (between the two Au surfaces)
+# Box: z from 0.0 to 34.45 A
+boundary p p p
+read_data Au_H2O.data
+mass        1 196.9665  # Au
+mass        2 2.0016    # H
+mass        3 15.9994   # O
+
+# == Define GROUPS ==
+group H2O type 2 3
+
+# == DEFINE FIX Au layers (central slab layers, away from water interface) ==
+# Central layers at z=4.81 A and z=7.23 A
+variable z_fix_bottom equal 4.0  # A
+variable z_fix_up equal 8.5      # A
+region fixedlayer block INF INF INF INF ${z_fix_bottom} ${z_fix_up}
+
+group Auall type 1
+group fixedAu region fixedlayer
+group mobileAu subtract Auall fixedAu
+
+# == Fix central slab layers ==
+fix fissoAubott fixedAu setforce 0 0 0
+velocity fixedAu set 0 0 0
+
+# == Define surface layers (for temperature monitoring) ==
+# Lower surface: Au layer at z=12.16 A (water-side, lower interface)
+variable z_surface_inf_low equal 11.5  # A
+variable z_surface_inf_high equal 12.8 # A
+region surface_inf block INF INF INF INF ${z_surface_inf_low} ${z_surface_inf_high}
+group surf_inf_Au region surface_inf
+
+# Upper surface: Au layer at z=34.33 A (water-side, upper interface at PBC boundary)
+variable z_surface_sup_low equal 33.5  # A
+variable z_surface_sup_high equal 34.5 # A
+region surface_sup block INF INF INF INF ${z_surface_sup_low} ${z_surface_sup_high}
+group surf_sup_Au region surface_sup
+
+# == Define Pair Style ==
+# POTENTIAL_FILE: replace with the compiled Franken model (.model-lammps.pt) after training
+pair_style mace no_domain_decomposition
+pair_coeff * * POTENTIAL_FILE Au H O
+
+# == Define NVT thermostat ==
+velocity mobileAu create ${temp_Au_mobile} ${seed1} mom yes rot yes
+fix NVT_Au mobileAu nvt temp ${temp_Au_mobile} ${temp_Au_mobile} $(100.0*dt)
+
+velocity H2O create ${temp_water} ${seed2}
+fix NVT_H2O H2O nvt temp ${temp_water} ${temp_water} $(100.0*dt)
+
+# == Compute and Visualization ==
+thermo          ${stride}
+thermo_style    custom step pe ke etotal temp press vol
+thermo_modify   flush yes
+fix     thermo_print all print ${stride} "$(step) $(pe) $(ke) $(etotal) $(temp) $(press) $(vol)" append thermo.out screen no title "#step pe ke etotal temp press vol"
+
+compute Tmobile mobileAu temp
+compute Tsurface_inf surf_inf_Au temp
+compute Tsurface_sup surf_sup_Au temp
+compute Twater H2O temp
+compute Tall all temp
+compute Press all pressure Tall
+
+fix myat1 mobileAu ave/time 1 1 100 c_Tmobile file temperature_mobile.dat
+fix myat2 surf_inf_Au ave/time 1 1 100 c_Tsurface_inf file temperature_surf_inf.dat
+fix myat3 surf_sup_Au ave/time 1 1 100 c_Tsurface_sup file temperature_surf_sup.dat
+fix myat4 H2O ave/time 1 1 100 c_Twater file temperature_water.dat
+fix myat5 all ave/time 1 1 100 c_Press[3] file pressure_all.dat
+
+dump        viewNVT all custom ${stride} Au_H2O_NVT_m05.dump id type element x y z fx fy fz
+dump_modify viewNVT sort id append yes element Au H O
+
+# == RUN NVT ==
+timestep ${tstep}
+run     ${nsteps}
+
+write_restart   Au_H2O_restart_m05.restart
+write_data Au_H2O_restart_m05.data
+undump viewNVT
